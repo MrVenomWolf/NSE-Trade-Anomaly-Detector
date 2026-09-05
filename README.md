@@ -1,4 +1,4 @@
-# NSE Trade Anomaly Detector 🚀
+# NSE Trade Anomaly Detector 
 
 A high-throughput, multithreaded quantitative volume-anomaly scanner for the **Indian Stock Market (NSE)**. It dynamically scans **2,500+ publicly listed NSE equities** in parallel, using log-transformed relative volume (RVOL) and Z-scores to flag statistically unusual volume activity indicating potential institutional accumulation.
 
@@ -8,12 +8,12 @@ A high-throughput, multithreaded quantitative volume-anomaly scanner for the **I
 
 ## Key Features
 
-* **📐 Statistical Volume-Anomaly Engine**: Log-transformed RVOL and Z-scores correct for the log-normal, right-skewed distribution of trading volume — see [Methodology](#methodology).
-* **⚡ ~98% Scan-Time Reduction**: Parallelized data collection with Python's `ThreadPoolExecutor` scans the full NSE universe (2,500+ tickers) in seconds instead of minutes.
-* **🛡️ Outlier-Resistant Baseline**: Median and Median Absolute Deviation (MAD) replace a naive moving average, so a single historical spike doesn't distort the baseline.
-* **🎯 Dual-Threshold Flagging**: An anomaly is only flagged when BOTH Z-score (≥ 2.5σ) and RVOL (≥ 2.0x) clear their thresholds, reducing false positives from single-metric heuristics.
-* **📊 Volatility-Adjusted Dashboard**: Dark-themed Tkinter GUI with price/volume charts and a 14-day Average True Range (ATR) zone shown alongside each flagged ticker's RVOL and Z-score. This is a descriptive volatility measure, not a buy/sell signal or price prediction.
-* **🇮🇳 Complete NSE Coverage**: Dynamically fetches the official master list of all active equities from NSE India archives — zero hardcoded stock symbols.
+* **Statistical Volume-Anomaly Engine**: Log-transformed RVOL and Z-scores correct for the log-normal, right-skewed distribution of trading volume — see [Methodology](#methodology).
+* **~98% Scan-Time Reduction**: Parallelized data collection with Python's `ThreadPoolExecutor` scans the full NSE universe (2,500+ tickers) in seconds instead of minutes.
+* **Outlier-Resistant Baseline**: Median and Median Absolute Deviation (MAD) replace a naive moving average, so a single historical spike doesn't distort the baseline.
+* **Dual-Threshold Flagging**: An anomaly is only flagged when BOTH Z-score (≥ 2.5σ) and RVOL (≥ 2.0x) clear their thresholds, reducing false positives from single-metric heuristics.
+* **Volatility-Adjusted Dashboard**: Dark-themed Tkinter GUI with price/volume charts and a 14-day Average True Range (ATR) zone shown alongside each flagged ticker's RVOL and Z-score. This is a descriptive volatility measure, not a buy/sell signal or price prediction.
+* **Complete NSE Coverage**: Dynamically fetches the official master list of all active equities from NSE India archives — zero hardcoded stock symbols.
 
 ---
 
