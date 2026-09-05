@@ -1,103 +1,97 @@
-# Quantitative NSE Trade Anomaly Detector 🚀
+# NSE Trade Anomaly Detector 🚀
 
-A high-throughput, multithreaded quantitative market scanner for the **Indian Stock Market (NSE)**. It dynamically scans **2,500+ publicly listed NSE equities** in parallel to detect unusual volume breakouts ($\Delta \ge 200\%$) indicating institutional accumulation, block deals, or smart-money activity.
+A high-throughput, multithreaded quantitative volume-anomaly scanner for the **Indian Stock Market (NSE)**. It dynamically scans **2,500+ publicly listed NSE equities** in parallel, using log-transformed relative volume (RVOL) and Z-scores to flag statistically unusual volume activity indicating potential institutional accumulation.
 
-`delta = (current_volume - rolling_baseline) / rolling_baseline`
-
-Flagged when `delta >= 2.0` (Configurable threshold in `config.py` or directly in the GUI).
+![NSE Trade Anomaly Detector dashboard](docs/dashboard.png)
 
 ---
 
-##  Key Features
+## Key Features
 
-* **🇮🇳 Complete NSE Coverage (~2,500+ Stocks)**: Dynamically fetches the official master list of all active equities directly from NSE India archives—zero hardcoded stock symbols.
-* **⚡ High-Speed Parallel Engine**: Leverages Python's `ThreadPoolExecutor` to perform concurrent market scans across 2,500+ tickers in **under 30 seconds** (a 98% execution speedup).
-* **🖥️ Dark Terminal GUI**: Custom charcoal/black UI theme featuring a structured tree table for flagged anomalies and real-time status metrics.
-* **📊 Interactive Matplotlib Visuals**: Dual-panel chart rendering 1-month daily Close Price trends and Bullish (Green) / Bearish (Red) Volume distribution histograms.
-* **⚡ In-Memory Smart Caching**: Caches historical price data locally to eliminate API rate limits (`429 Too Many Requests`) and prevent redundant network calls.
-* **🎯 Target Price & Signal Analytics**: Displays Last Close, Day High/Low, and statistical target zones for flagged tickers.
-* **🔌 Angel One SmartAPI Integration Ready**: Support for zero-delay live 5-minute candle feeds using official broker APIs (`smartapi-python`).
-
----
-
-## 📐 The Math Behind It (`anomaly_engine.py`)
-
-1. **Rolling Baseline Calculation**: Calculates a 20-day Simple Moving Average (SMA) of volume, excluding the current trading session:
-   $$\text{Baseline} = \text{Mean}(\text{Volume}_{t-20} \dots \text{Volume}_{t-1})$$
-2. **Volume Deviation ($\Delta$)**: Measures today's volume surge relative to normal historical levels:
-   $$\Delta = \frac{\text{Volume}_{\text{today}} - \text{Baseline}}{\text{Baseline}}$$
-3. **Anomaly Isolation**: Flags the security if $\Delta \ge \text{Threshold}$ (e.g., $200\%$ deviation = 3x normal volume). Focuses exclusively on the latest active trading session.
+* **📐 Statistical Volume-Anomaly Engine**: Log-transformed RVOL and Z-scores correct for the log-normal, right-skewed distribution of trading volume — see [Methodology](#methodology).
+* **⚡ ~98% Scan-Time Reduction**: Parallelized data collection with Python's `ThreadPoolExecutor` scans the full NSE universe (2,500+ tickers) in seconds instead of minutes.
+* **🛡️ Outlier-Resistant Baseline**: Median and Median Absolute Deviation (MAD) replace a naive moving average, so a single historical spike doesn't distort the baseline.
+* **🎯 Dual-Threshold Flagging**: An anomaly is only flagged when BOTH Z-score (≥ 2.5σ) and RVOL (≥ 2.0x) clear their thresholds, reducing false positives from single-metric heuristics.
+* **📊 Volatility-Adjusted Dashboard**: Dark-themed Tkinter GUI with price/volume charts and a 14-day Average True Range (ATR) zone shown alongside each flagged ticker's RVOL and Z-score. This is a descriptive volatility measure, not a buy/sell signal or price prediction.
+* **🇮🇳 Complete NSE Coverage**: Dynamically fetches the official master list of all active equities from NSE India archives — zero hardcoded stock symbols.
 
 ---
 
-## 🛠️ Setup & Installation
+## Methodology
 
-## Setup
+![Anomaly detection pipeline](docs/methodology_diagram.svg)
 
-Clone this repo:
-  ```
-   git clone https://github.com/<your-username>/<your-repo>.git
-   cd <your-repo>
-  ```
+Trading volume is **log-normally distributed and right-skewed** — a naive percentage-change or mean-based baseline is easily distorted by prior spikes and produces unreliable signals. This engine uses statistically robust, outlier-resistant methods instead.
+
+| Metric | Formula | Purpose |
+|---|---|---|
+| **Baseline** | `median(Volume_{t-20} ... Volume_{t-1})` | Outlier-resistant baseline, unaffected by a single historical spike |
+| **RVOL** | `Volume_today / Baseline` | Relative volume surge vs. typical activity |
+| **Log Z-Score** | `(ln(1+V_today) - μ_log) / σ_log` over `ln(1+V)` history | Corrects for volume's log-normal distribution |
+| **Modified Z-Score (MAD)** | `0.6745 × (V_today - median) / MAD` | Secondary outlier-resistant robustness check (informational, not gating) |
+
+**Flagging rule:** a security is flagged only when **both** `Z-score >= 2.5σ` **and** `RVOL >= 2.0x` — computed over a rolling **20-trading-day** window.
+
+**On the dashboard's Volatility Zone:** each flagged ticker's chart shows a 14-day Average True Range (ATR) band around the last close (`last_close ± ATR`). ATR is a standard technical measure of a stock's typical daily trading range (Wilder, 1978) — it describes how much a stock normally moves, it does not predict direction or forecast a return. It is shown for context alongside the RVOL/Z-score that actually drove the flag, not as a trading recommendation.
+
+---
+
+## Setup & Installation
 
 ```bash
-cd trade_anomaly_detector
+git clone https://github.com/<your-username>/<your-repo>.git
+cd <your-repo>
 pip install -r requirements.txt
 ```
 
-### Required Packages (`requirements.txt`)
+### Required Packages
 * `pandas`
-* `requests`
+* `numpy`
 * `yfinance`
 * `matplotlib`
-* `smartapi-python` (Optional: for Angel One live broker feed)
-* `pyotp` (Optional: for TOTP authentication)
+* `requests`
 
 ---
 
-## 🚀 Running the Application
+## Running the Application
 
-### 1. Launch the Dark Dashboard (Recommended)
-
+### 1. Dashboard (Recommended)
 ```bash
 python gui.py
 ```
-* Custom threshold adjustment (e.g., enter `200` for 200% threshold).
-* Click any stock from the flagged left table to instantly render its price/volume chart.
+Enter an RVOL threshold (default `2.0`) and click **RUN SCAN**. Select any flagged ticker from the left table to load its price/volume chart, RVOL/Z-score, and ATR-based volatility zone.
 
-### 2. Command Line Interface (CLI)
-
+### 2. Command Line
 ```bash
-python main.py                  # Default full scan
-python main.py --threshold 3.0  # Require 300% volume surge
-python main.py --equities-only  # Scan equities exclusively
+python main.py                # Default: RVOL >= 2.0x, Z-score >= 2.5σ
+python main.py --rvol 2.5     # Require 2.5x relative volume
+python main.py --z-score 3.0  # Require 3.0 sigma
 ```
+
 ---
 
-## 📁 Project Architecture
+## Project Architecture
 
-text
-├── config.py             <- Global parameters & dynamic NSE master list loader
-├── anomaly_engine.py      <- Pure Python rolling baseline math engine (zero dependencies)
-├── alerts.py             <- Terminal formatting & automated CSV alert logging
-├── main.py               <- CLI entry point with ThreadPoolExecutor parallelization
-├── gui.py                <- Dark Terminal GUI (Tkinter + Matplotlib Canvas + Local Cache)
+```
+├── config.py           <- Thresholds & dynamic NSE master list loader
+├── anomaly_engine.py    <- Statistical engine (log Z-score, median/MAD, NumPy)
+├── alerts.py            <- Console formatting & CSV alert logging
+├── main.py              <- CLI entry point with ThreadPoolExecutor parallelization
+├── gui.py               <- Dark-themed Tkinter + Matplotlib dashboard (ATR volatility zone)
 └── data_sources/
-    ├── equities.py       <- Stock data fetching engine (SmartAPI / Yahoo Finance)
-
-
----
-
-## ⚙️ Configuration (`config.py`)
-
-Custom tunables live in `config.py`:
-* `DELTA_THRESHOLD`: Default volume multiplier (e.g., `2.0` = +200%).
-* `BASELINE_WINDOW`: Moving average sample size (default: `20` trading days).
-* `EQUITY_TICKERS`: Dynamically populated with all ~2,500+ NSE stock tickers via official NSE CSV archives.
+    └── equities.py       <- NSE volume data fetching (Yahoo Finance)
+```
 
 ---
 
-## 📄 Disclaimer
+## Configuration (`config.py`)
 
-This project is built for **educational and quantitative research purposes only**. Volume anomalies represent statistical deviations from baseline trends and do not constitute financial advice or explicit buy/sell signals.
+* `MIN_Z_SCORE`: Minimum log-normalized Z-score to flag an anomaly (default: `2.5`)
+* `MIN_RVOL`: Minimum relative volume multiplier vs. median baseline (default: `2.0`)
+* `BASELINE_WINDOW`: Historical sample size for baseline/Z-score calculation (default: `20` trading days)
 
+---
+
+## Disclaimer
+
+Built for **educational and quantitative research purposes only**. Volume anomalies represent statistical deviations from baseline trends and do not constitute financial advice or explicit buy/sell signals. The dashboard's ATR-based volatility zone describes historical trading range only — it is not a price target or prediction.

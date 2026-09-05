@@ -65,14 +65,9 @@ class DashboardApp(tk.Tk):
         ctrl = ttk.Frame(self, padding=12)
         ctrl.pack(fill=tk.X)
 
-        ttk.Label(ctrl, text="Threshold %:", font=("Segoe UI", 9, "bold")).pack(side=tk.LEFT)
-        self.threshold_var = tk.StringVar(value="200")
+        ttk.Label(ctrl, text="RVOL Threshold (x):", font=("Segoe UI", 9, "bold")).pack(side=tk.LEFT)
+        self.threshold_var = tk.StringVar(value="2.0")
         ttk.Entry(ctrl, textvariable=self.threshold_var, width=6).pack(side=tk.LEFT, padx=(6, 20))
-
-        self.var_equities = tk.BooleanVar(value=True)
-        self.var_forex = tk.BooleanVar(value=False)
-        ttk.Checkbutton(ctrl, text="NSE Equities", variable=self.var_equities).pack(side=tk.LEFT, padx=8)
-        ttk.Checkbutton(ctrl, text="Forex", variable=self.var_forex).pack(side=tk.LEFT, padx=8)
 
         self.btn_run = ttk.Button(ctrl, text="RUN SCAN", command=self.start_scan)
         self.btn_run.pack(side=tk.RIGHT, ipadx=10)
@@ -83,14 +78,16 @@ class DashboardApp(tk.Tk):
         left_frame = ttk.Frame(paned, padding=5)
         paned.add(left_frame, weight=1)
 
-        columns = ("symbol", "delta", "value")
+        columns = ("symbol", "rvol", "z_score", "value")
         self.tree = ttk.Treeview(left_frame, columns=columns, show="headings", selectmode="browse")
         self.tree.heading("symbol", text="SYMBOL")
-        self.tree.heading("delta", text="DELTA %")
+        self.tree.heading("rvol", text="RVOL")
+        self.tree.heading("z_score", text="Z-SCORE")
         self.tree.heading("value", text="VOLUME")
 
         self.tree.column("symbol", width=110, anchor="w")
-        self.tree.column("delta", width=90, anchor="e")
+        self.tree.column("rvol", width=80, anchor="e")
+        self.tree.column("z_score", width=90, anchor="e")
         self.tree.column("value", width=120, anchor="e")
 
         scrollbar = ttk.Scrollbar(left_frame, orient=tk.VERTICAL, command=self.tree.yview)
@@ -144,13 +141,10 @@ class DashboardApp(tk.Tk):
 
         def worker():
             try:
-                threshold_pct = float(self.threshold_var.get()) / 100.0
+                min_rvol = float(self.threshold_var.get())
                 anomalies = engine_main.run(
-                    threshold=threshold_pct,
-                    include_equities=self.var_equities.get(),
-                    include_forex=self.var_forex.get(),
-                    include_swaps=False,
-                    include_news=False,
+                    min_rvol=min_rvol,
+                    min_z_score=config.MIN_Z_SCORE,
                 )
                 self.after(0, self.populate_table, anomalies)
             except Exception as e:
@@ -162,7 +156,9 @@ class DashboardApp(tk.Tk):
 
     def populate_table(self, anomalies):
         for a in anomalies:
-            item_id = self.tree.insert("", tk.END, values=(a.point.symbol, a.delta_pct, f"{a.point.value:,.0f}"))
+            item_id = self.tree.insert("", tk.END, values=(
+                a.point.symbol, f"{a.rvol:.2f}x", f"{a.z_score:+.2f}\u03c3", f"{a.point.value:,.0f}"
+            ))
             self.anomalies_map[item_id] = a
 
     def on_stock_select(self, event):
@@ -174,7 +170,7 @@ class DashboardApp(tk.Tk):
         symbol = anomaly.point.symbol
 
         if symbol in self.stock_cache:
-            self._process_and_update_chart(symbol, self.stock_cache[symbol])
+            self._process_and_update_chart(symbol, self.stock_cache[symbol], anomaly)
             return
 
         try:
@@ -184,12 +180,41 @@ class DashboardApp(tk.Tk):
                 return
 
             self.stock_cache[symbol] = df
-            self._process_and_update_chart(symbol, df)
+            self._process_and_update_chart(symbol, df, anomaly)
         except Exception as e:
             err_msg = "Rate limit hit! Wait 10s." if "Too Many Requests" in str(e) else f"Error: {e}"
             self.after(0, self.lbl_price_info.config, {"text": err_msg, "fg": "#ff5252"})
 
-    def _process_and_update_chart(self, symbol, df):
+    @staticmethod
+    def compute_atr(df: pd.DataFrame, period: int = 14) -> float:
+        """
+        Average True Range over the trailing `period` sessions — a standard
+        volatility measure (Wilder, 1978). True Range for each session is the
+        greatest of:
+            (High - Low), |High - PrevClose|, |Low - PrevClose|
+        ATR is the simple mean of True Range over the window. Used here to
+        size a volatility-adjusted watch zone around the last close, in place
+        of an arbitrary fixed percentage.
+        """
+        high = df["High"]
+        low = df["Low"]
+        prev_close = df["Close"].shift(1)
+
+        true_range = pd.concat(
+            [
+                (high - low),
+                (high - prev_close).abs(),
+                (low - prev_close).abs(),
+            ],
+            axis=1,
+        ).max(axis=1)
+
+        window = true_range.dropna().tail(period)
+        if window.empty:
+            return 0.0
+        return float(window.mean())
+
+    def _process_and_update_chart(self, symbol, df, anomaly=None):
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.get_level_values(0)
 
@@ -205,10 +230,22 @@ class DashboardApp(tk.Tk):
         high_price = float(df["High"].iloc[-1]) if "High" in df else last_close
         low_price = float(df["Low"].iloc[-1]) if "Low" in df else last_close
 
+        atr = self.compute_atr(df, period=14)
+        zone_low = last_close - atr
+        zone_high = last_close + atr
+
+        anomaly_line = ""
+        if anomaly is not None:
+            anomaly_line = (
+                f"RVOL: {anomaly.rvol:.2f}x  | Z-SCORE: {anomaly.z_score:+.2f}\u03c3  "
+                f"| ROBUST Z: {anomaly.modified_z_score:+.2f}\u03c3\n"
+            )
+
         info_text = (
-            f"SYMBOL: {symbol:<12} | LAST CLOSE: ₹{last_close:,.2f}\n"
-            f"DAY HIGH: ₹{high_price:,.2f}  | DAY LOW: ₹{low_price:,.2f}\n"
-            f"BUY ZONE: ~₹{low_price * 0.99:,.2f}  | TARGET SELL: ~₹{last_close * 1.05:,.2f}"
+            f"SYMBOL: {symbol:<12} | LAST CLOSE: \u20b9{last_close:,.2f}\n"
+            f"{anomaly_line}"
+            f"DAY HIGH: \u20b9{high_price:,.2f}  | DAY LOW: \u20b9{low_price:,.2f}\n"
+            f"ATR (14D): \u20b9{atr:,.2f}  | VOLATILITY ZONE: \u20b9{zone_low:,.2f} \u2013 \u20b9{zone_high:,.2f}"
         )
 
         self.after(0, self.update_chart_ui, symbol, df, info_text)
@@ -222,7 +259,7 @@ class DashboardApp(tk.Tk):
 
         # Plot Price and Volume
         self.ax_price.plot(df.index, df["Close"], label="Close Price", color="#00b0ff", lw=2)
-        self.ax_price.set_title(f"{symbol} — Price & Volume Trend", color="#ffffff", fontsize=10, fontweight="bold")
+        self.ax_price.set_title(f"{symbol} \u2014 Price & Volume Trend", color="#ffffff", fontsize=10, fontweight="bold")
         self.ax_price.grid(True, linestyle=":", alpha=0.3, color="#555555")
 
         colors = ["#00e676" if c >= o else "#ff5252" for c, o in zip(df["Close"], df["Open"])]

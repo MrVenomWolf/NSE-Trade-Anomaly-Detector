@@ -10,9 +10,10 @@ import requests
 
 
 # ---------------------------------------------------------------------------
-# CORE THRESHOLDS
+# CORE THRESHOLDS (dual-threshold system: BOTH must clear to flag an anomaly)
 # ---------------------------------------------------------------------------
-DELTA_THRESHOLD = 0.30
+MIN_Z_SCORE = 2.5      # log-normalized Z-score cutoff (~99th percentile)
+MIN_RVOL = 2.0           # relative volume multiplier vs. median baseline
 BASELINE_WINDOW = 20
 
 
@@ -25,36 +26,16 @@ def get_all_nse_stocks():
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
     }
-
     response = requests.get(url, headers=headers)
     response.raise_for_status()
-
     df = pd.read_csv(StringIO(response.text))
-
-    # Convert all listed NSE symbols to Yahoo Finance format (SYMBOL.NS)
     return (df["SYMBOL"].str.strip() + ".NS").tolist()
 
 
-# Every listed ticker on the NSE (~2,000+ stocks)
+# Every listed ticker on the NSE (~2,500+ stocks)
 EQUITY_TICKERS = get_all_nse_stocks()
 
-# Currency pairs
-FX_PAIRS = ["USDINR=X", "EURINR=X", "GBPINR=X", "JPYINR=X" , "AEDINR=X" , "CNYINR=X"]
-SWAP_ASSET_CLASSES = ["interest_rate", "credit_default", "fx"]
-
-# ---------------------------------------------------------------------------
-# DYNAMIC NEWS SEARCH
-# ---------------------------------------------------------------------------
-
-"""
-NEWS_CORRELATION_ENABLED = True
-NEWS_SEARCH_TERMS = {
-    symbol: f"{symbol.split('.')[0]} share news"
-    for symbol in EQUITY_TICKERS + FX_PAIRS
-}
-"""
 # ---------------------------------------------------------------------------
 # OUTPUT
 # ---------------------------------------------------------------------------
 ALERT_LOG_FILE = "alerts_log.csv"
-
